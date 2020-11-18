@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,8 @@
 package io.pivotal.util;
 
 import java.time.Duration;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import reactor.core.publisher.Mono;
 
@@ -30,12 +32,35 @@ public class RateLimitHelper {
 
 	private static final Mono<Object> parentMono = Mono.just("foo");
 
-	private final Duration timeBetweenCalls = Duration.ofSeconds(1);
+	private final Duration timeBetweenCalls = Duration.ofMillis(350);
 
 	private Mono<Object> nextPermit;
 
+	private AtomicLong requests = new AtomicLong();
+
+	private AtomicLong reset = new AtomicLong();
+
 
 	public void obtainPermitToCall() {
+
+		reset.compareAndSet(0, System.currentTimeMillis());
+		if(requests.incrementAndGet() > 99){
+
+			long since = reset.getAndSet(System.currentTimeMillis());
+			long now = System.currentTimeMillis();
+
+
+			double seconds = TimeUnit.MILLISECONDS.toSeconds(now - since);
+			double requests = this.requests.getAndSet(0);
+			double requestsPerSecond =  requests/ seconds;
+			double requestsPerMinute = requestsPerSecond * 60;
+			double requestsPerHour = requestsPerMinute * 60;
+
+			System.out.println();
+			System.out.println(String
+					.format("Requests %.0f, per second %.2f, per minute %.2f, per hour %.2f", requests, requestsPerSecond, requestsPerMinute, requestsPerHour));
+		}
+
 		if (nextPermit != null) {
 			nextPermit.block();
 		}

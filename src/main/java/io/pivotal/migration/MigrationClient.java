@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,21 +15,6 @@
  */
 package io.pivotal.migration;
 
-import java.io.IOException;
-import java.net.URI;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import java.util.Set;
-import java.util.function.Function;
-import java.util.stream.Collectors;
-
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import io.pivotal.github.ExtendedEgitGitHubClient;
 import io.pivotal.github.GitHubRestTemplate;
 import io.pivotal.github.GithubComment;
@@ -50,6 +35,22 @@ import io.pivotal.util.ProgressTracker;
 import io.pivotal.util.RateLimitHelper;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
+
+import java.io.IOException;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Properties;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.egit.github.core.IRepositoryIdProvider;
@@ -62,11 +63,15 @@ import org.eclipse.egit.github.core.service.CommitService;
 import org.eclipse.egit.github.core.service.LabelService;
 import org.eclipse.egit.github.core.service.MilestoneService;
 import org.joda.time.DateTime;
+import org.joda.time.base.AbstractInstant;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.core.io.Resource;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.RequestEntity;
 import org.springframework.http.RequestEntity.BodyBuilder;
@@ -79,6 +84,9 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.util.UriComponents;
 import org.springframework.web.util.UriComponentsBuilder;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 
 /**
@@ -139,15 +147,16 @@ public class MigrationClient {
 		this.issueProcessor = issueProcessor;
 		this.repositoryIdProvider = RepositoryId.createFromId(this.config.getRepositorySlug());
 		this.importRequestBuilder = initImportRequestBuilder();
-		this.client.setOAuth2Token(config.getAccessToken());
+		this.client.setCredentials(config.getUser(), config.getAccessToken());
 	}
 
 	private BodyBuilder initImportRequestBuilder() {
 		String slug = this.config.getRepositorySlug();
+
 		URI uri = URI.create("https://api.github.com/repos/" + slug + "/import/issues");
 		return RequestEntity.post(uri)
 				.accept(new MediaType("application", "vnd.github.golden-comet-preview+json"))
-				.header("Authorization", "token " + this.config.getAccessToken());
+				.header("Authorization", this.config.getAuthorizationHeader());
 	}
 
 	@SuppressWarnings("unused")
@@ -183,10 +192,11 @@ public class MigrationClient {
 
 		String url = UriComponentsBuilder
 				.fromUriString("https://api.github.com/repos/" + slug)
-				.queryParam("access_token", this.config.getAccessToken())
 				.toUriString();
 
-		rest.delete(url);
+		HttpHeaders headers = new HttpHeaders();
+		headers.set(HttpHeaders.AUTHORIZATION, this.config.getAuthorizationHeader());
+		rest.exchange(url, HttpMethod.DELETE, new HttpEntity<>(headers), String.class);
 		return true;
 	}
 
@@ -198,11 +208,17 @@ public class MigrationClient {
 
 		logger.info("Creating repository {}", slug);
 
-		UriComponentsBuilder uri = UriComponentsBuilder.fromUriString("https://api.github.com/user/repos")
-				.queryParam("access_token", this.config.getAccessToken());
-		Map<String, String> repository = new HashMap<>();
+		UriComponentsBuilder uri = UriComponentsBuilder.fromUriString("https://api.github.com/user/repos");
+
+		Map<String, Object> repository = new HashMap<>();
 		repository.put("name", slug.split("/")[1]);
-		ResponseEntity<String> entity = rest.postForEntity(uri.toUriString(), repository, String.class);
+		repository.put("private", true);
+
+		HttpHeaders headers = new HttpHeaders();
+		headers.set(HttpHeaders.AUTHORIZATION, this.config.getAuthorizationHeader());
+
+		ResponseEntity<String> entity = rest.postForEntity(uri.toUriString(), new HttpEntity(repository, headers),
+				String.class);
 		Assert.notNull(entity, "No response");
 	}
 
@@ -215,7 +231,7 @@ public class MigrationClient {
 			tracker.updateForIteration();
 			Milestone milestone = new Milestone();
 			milestone.setTitle(version.getName());
-			milestone.setState(version.isReleased() ? "closed" : "open");
+			milestone.setState(version.isReleased() || version.isArchived() ? "closed" : "open");
 			if (version.getReleaseDate() != null) {
 				Date date = version.getReleaseDate().toDate();
 				milestone.setCreatedAt(date);
@@ -228,6 +244,17 @@ public class MigrationClient {
 
 	public void createLabels() throws IOException {
 		LabelService labelService = new LabelService(this.client);
+		List<Label> existingLabels = labelService.getLabels(repositoryIdProvider);
+
+		existingLabels.forEach(it -> {
+			try {
+				labelService.deleteLabel(repositoryIdProvider,
+						URLEncoder.encode(it.getName(), "US-ASCII").replaceAll("\\+", "%20"));
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		});
+
 		Set<Label> labels = labelHandler.getAllLabels();
 		logger.info("Creating labels: {}", labels);
 		ProgressTracker tracker = new ProgressTracker(labels.size(), logger.isDebugEnabled());
@@ -564,7 +591,10 @@ public class MigrationClient {
 		Throwable failure = null;
 		try {
 			RequestEntity<ImportGithubIssue> request = importRequestBuilder.body(importIssue);
-			response = rest.exchange(request, ImportGithubIssueResponse.class).getBody();
+			ResponseEntity<ImportGithubIssueResponse> exchange = rest
+					.exchange(request, ImportGithubIssueResponse.class);
+			logger.info("{} {X-RateLimit-Remaining:{}}", exchange.getStatusCode(), getRemainingRequests(exchange));
+			response = exchange.getBody();
 			if (response != null) {
 				response.setImportIssue(importIssue);
 			}
@@ -581,6 +611,22 @@ public class MigrationClient {
 			context.addFailureMessage(message + ": " + failure.getMessage());
 		}
 		return response;
+	}
+
+	private int getRemainingRequests(ResponseEntity<ImportGithubIssueResponse> exchange) {
+
+		String remaining = exchange.getHeaders().getFirst("X-RateLimit-Remaining");
+
+		if(remaining == null){
+			return -1;
+		}
+
+		try {
+			return Integer.parseInt(remaining);
+		}
+		catch (NumberFormatException e) {
+			return -1;
+		}
 	}
 
 	private boolean checkImportResult(ImportedIssue importedIssue, MigrationContext context) {
@@ -600,7 +646,7 @@ public class MigrationClient {
 			URI uri = UriComponentsBuilder.fromUriString(importUrl).build().toUri();
 			RequestEntity<Void> request = RequestEntity.get(uri)
 					.accept(new MediaType("application", "vnd.github.golden-comet-preview+json"))
-					.header("Authorization", "token " + this.config.getAccessToken())
+					.header("Authorization", this.config.getAuthorizationHeader())
 					.build();
 			while (true) {
 				Map<String, Object> body;
@@ -650,10 +696,21 @@ public class MigrationClient {
 		GithubIssue ghIssue = new GithubIssue();
 		ghIssue.setMilestone(milestone.getNumber());
 		ghIssue.setTitle(milestone.getTitle() + " Backported Issues");
-		ghIssue.setCreatedAt(new DateTime(milestone.getDueOn().getTime()));
+
+		Optional<DateTime> min = backportIssues.stream().map(it -> it.getFields().getUpdated())
+				.min(AbstractInstant::compareTo);
+
+		if (milestone.getDueOn() != null) {
+			ghIssue.setCreatedAt(new DateTime(milestone.getDueOn().getTime()));
+		} else if (min.isPresent()) {
+			ghIssue.setCreatedAt(min.get());
+		}
+
 		if (milestone.getState().equals("closed")) {
 			ghIssue.setClosed(true);
-			ghIssue.setClosedAt(new DateTime(milestone.getDueOn()));
+			if (milestone.getDueOn() != null) {
+				ghIssue.setClosedAt(new DateTime(milestone.getDueOn()));
+			}
 		}
 		String body = backportIssues.stream()
 				.map(jiraIssue -> {

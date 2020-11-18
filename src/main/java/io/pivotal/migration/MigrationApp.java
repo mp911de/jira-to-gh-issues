@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -101,8 +101,8 @@ public class MigrationApp implements CommandLineRunner {
 
 			if (issueMappings.isEmpty()) {
 				JiraProject project = jira.findProject(jiraConfig.getProjectId());
-				github.createMilestones(project.getVersions());
 				github.createLabels();
+				github.createMilestones(project.getVersions());
 			}
 			else {
 				// If there are issue mappings, we'll assume it's "restart after failure" and

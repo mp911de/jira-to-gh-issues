@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,10 @@
  */
 package io.pivotal.util;
 
+import io.pivotal.jira.JiraConfig;
+import io.pivotal.jira.JiraUser;
+import lombok.Data;
+
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -23,33 +27,18 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-import com.vladsch.flexmark.ast.Document;
-import com.vladsch.flexmark.ast.Emphasis;
-import com.vladsch.flexmark.ast.HtmlBlock;
-import com.vladsch.flexmark.ast.HtmlCommentBlock;
-import com.vladsch.flexmark.ast.HtmlInline;
-import com.vladsch.flexmark.ast.HtmlInlineComment;
-import com.vladsch.flexmark.ast.Link;
-import com.vladsch.flexmark.ast.LinkRef;
-import com.vladsch.flexmark.ast.Node;
-import com.vladsch.flexmark.ast.NodeVisitor;
-import com.vladsch.flexmark.ast.Text;
-import com.vladsch.flexmark.ast.VisitHandler;
-import com.vladsch.flexmark.ast.Visitor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+import org.springframework.util.Assert;
+import org.springframework.util.StringUtils;
+
+import com.vladsch.flexmark.ast.*;
 import com.vladsch.flexmark.formatter.internal.Formatter;
 import com.vladsch.flexmark.parser.Parser;
 import com.vladsch.flexmark.parser.block.NodePostProcessor;
 import com.vladsch.flexmark.parser.block.NodePostProcessorFactory;
 import com.vladsch.flexmark.util.NodeTracker;
 import com.vladsch.flexmark.util.sequence.BasedSequence;
-import io.pivotal.jira.JiraConfig;
-import io.pivotal.jira.JiraUser;
-import lombok.Data;
-
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
-import org.springframework.util.Assert;
-import org.springframework.util.StringUtils;
 
 /**
  * @author Rob Winch
@@ -103,6 +92,10 @@ public class MarkdownEngine implements MarkupEngine {
 
 		if (!StringUtils.hasLength(text)) {
 			return "";
+		}
+
+		if (text.endsWith(".") && !text.endsWith("..")) {
+			text = text.substring(0, text.length() - 1).trim();
 		}
 
 		// Lists and headings (in that order!)

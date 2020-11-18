@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -48,6 +48,11 @@ public class TextileEngine implements MarkupEngine {
 		if (!StringUtils.hasLength(text)) {
 			return "";
 		}
+
+		if (text.endsWith(".") && !text.endsWith("..")) {
+			text = text.substring(0, text.length() - 1);
+		}
+
 		text = blockCode(text);
 		text = text.replaceAll("\\[(.+?)\\|(http.*?)\\]","[\"$1\":$2]");
 		text = text.replaceAll("\\{\\{(.+?)\\}\\}", "@$1@");

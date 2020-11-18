@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,16 +15,17 @@
  */
 package io.pivotal.pre;
 
+import io.pivotal.jira.JiraClient;
+import io.pivotal.jira.JiraComment;
+import io.pivotal.jira.JiraConfig;
+import io.pivotal.jira.JiraIssue;
+import io.pivotal.jira.JiraUser;
+
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
-
-import io.pivotal.jira.JiraClient;
-import io.pivotal.jira.JiraConfig;
-import io.pivotal.jira.JiraIssue;
-import io.pivotal.jira.JiraUser;
 
 
 /**
@@ -41,20 +42,34 @@ public class AssigneesReport extends BaseApp {
 		JiraConfig config = initJiraConfig();
 		JiraClient client = new JiraClient(config);
 
-		Map<String, AtomicInteger> result = new HashMap<>();
+		Map<String, AtomicInteger> assigneCounters = new HashMap<>();
+		Map<String, AtomicInteger> commenterCounters = new HashMap<>();
 		for (JiraIssue issue : client.findIssues(config.getMigrateJql())) {
 			JiraUser user = issue.getFields().getAssignee();
 			if (user != null) {
-				String key = user.getKey() + " (" + user.getDisplayName() + ")";
-				result.computeIfAbsent(key, s -> new AtomicInteger(0)).getAndIncrement();
+				increment(assigneCounters, user);
+			}
+
+			for (JiraComment comment : issue.getFields().getComment().getComments()) {
+				increment(commenterCounters, comment.getAuthor());
 			}
 		}
 
-		List<String> assignees = result.entrySet().stream()
+		List<String> assignees = assigneCounters.entrySet().stream()
 				.map(entry -> entry.getKey() + " [" + entry.getValue().get() + "]")
 				.collect(Collectors.toList());
 
 		System.out.println("Assignees: \n" + assignees + "\n\n");
+
+		List<String> commentors = commenterCounters.entrySet().stream().sorted((o1, o2) -> Integer.compare(o2.getValue().intValue(), o1.getValue().intValue()))
+				.map(entry -> entry.getKey() + " [" + entry.getValue().get() + "]").collect(Collectors.toList());
+
+		System.out.println("Commentors: \n" + commentors + "\n\n");
+	}
+
+	private static void increment(Map<String, AtomicInteger> counters, JiraUser user) {
+		String key = user.getKey() + " (" + user.getDisplayName() + ")";
+		counters.computeIfAbsent(key, s -> new AtomicInteger(0)).getAndIncrement();
 	}
 
 }

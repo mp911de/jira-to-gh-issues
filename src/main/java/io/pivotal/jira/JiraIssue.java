@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,18 +15,20 @@
  */
 package io.pivotal.jira;
 
+import lombok.Data;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import lombok.Data;
 import org.joda.time.DateTime;
 
 import org.springframework.web.util.UriComponentsBuilder;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
  * @author Rob Winch
@@ -114,6 +116,11 @@ public class JiraIssue {
 				Collections.emptyList();
 	}
 
+	public boolean hasLabel(String label) {
+
+		return getFields().getLabels() != null
+				&& getFields().getLabels().stream().anyMatch(it -> it.toLowerCase().contains(label));
+	}
 
 	@Data
 	@JsonIgnoreProperties(ignoreUnknown = true)

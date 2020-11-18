@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package io.pivotal.migration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -26,6 +27,9 @@ import java.util.stream.Collectors;
 
 import io.pivotal.jira.JiraIssue;
 import org.eclipse.egit.github.core.Label;
+import reactor.util.function.Tuple2;
+import reactor.util.function.Tuple3;
+import reactor.util.function.Tuples;
 
 
 public class CompositeLabelHandler implements LabelHandler {
@@ -33,7 +37,7 @@ public class CompositeLabelHandler implements LabelHandler {
 	private final List<LabelHandler> handlers = new ArrayList<>();
 
 	/** More general label superseded by presence of more specific one (e.g. bug and regression) */
-	private final Map<String, String> supersedeMappings = new HashMap<>();
+	private final List<Tuple2<String, String>> supersedeMappings = new ArrayList<>();
 
 	/** If a given label is present, remove a set of others (e.g. waiting-for-triage and "type:...") */
 	private final Map<String, Predicate<String>> removeMappings = new HashMap<>();
@@ -55,7 +59,7 @@ public class CompositeLabelHandler implements LabelHandler {
 	 * If both labels are present, the second supersedes the first.
 	 */
 	public void addLabelSupersede(String generalLabel, String specificLabel) {
-		this.supersedeMappings.put(generalLabel, specificLabel);
+		this.supersedeMappings.add(Tuples.of(generalLabel, specificLabel));
 	}
 
 	/**
@@ -76,7 +80,10 @@ public class CompositeLabelHandler implements LabelHandler {
 		Set<String> labels = handlers.stream()
 				.flatMap(mapper -> mapper.getLabelsFor(jiraIssue).stream())
 				.collect(Collectors.toSet());
-		supersedeMappings.forEach((general, specific) -> {
+		supersedeMappings.forEach(tuple -> {
+			String general = tuple.getT1();
+			String specific = tuple.getT2();
+
 			if (labels.contains(general) && labels.contains(specific)) {
 				labels.remove(general);
 			}
@@ -89,7 +96,6 @@ public class CompositeLabelHandler implements LabelHandler {
 		});
 		return labels;
 	}
-
 
 	private static class PredicateLabelHandler implements LabelHandler {
 

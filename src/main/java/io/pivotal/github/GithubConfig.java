@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,8 @@
  */
 package io.pivotal.github;
 
+import java.util.Base64;
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -24,7 +26,6 @@ import lombok.Data;
  * @author Rob Winch
  *
  */
-
 @Component
 @ConfigurationProperties(prefix="github")
 @Data
@@ -36,6 +37,11 @@ public class GithubConfig {
 	 * against a test repository first.
 	 */
 	String repositorySlug;
+
+	/**
+	 * The username.
+	 */
+	String user;
 
 	/**
 	 * The OAuth Access Token used to perform the migration. Visit
@@ -57,4 +63,12 @@ public class GithubConfig {
 	 * </p>
 	 */
 	boolean deleteCreateRepositorySlug;
+
+	public String getAuthorizationHeader() {
+
+		 String credentialsString =getUser() + ":" + getAccessToken();
+		 byte[] encodedBytes = Base64.getEncoder().encode(credentialsString.getBytes());
+
+		return "Basic " + new String(encodedBytes);
+	}
 }
